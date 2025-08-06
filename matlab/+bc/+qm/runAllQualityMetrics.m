@@ -108,6 +108,10 @@ end
 %% loop through units and get quality metrics
 fprintf('\n Extracting quality metrics from %s ... \n', param.rawFile)
 
+% group spike times and amplitudes by to their assigned templates
+totalNumTemplates = max(spikeTemplates);
+spikeTimes_secondsGrouped = accumarray(spikeTemplates, spikeTimes_seconds, [totalNumTemplates, 1], @(x){ x });
+templateAmplitudesGrouped = accumarray(spikeTemplates, double(templateAmplitudes), [totalNumTemplates, 1], @(x){ x });
 
 for iUnit = 1:size(uniqueTemplates, 1)
     clearvars thisUnit theseSpikeTimes theseAmplis theseSpikeTemplates
@@ -116,9 +120,8 @@ for iUnit = 1:size(uniqueTemplates, 1)
     qMetric.phy_clusterID(iUnit) = thisUnit - 1; % this is the cluster ID as it appears in phy
     qMetric.clusterID(iUnit) = thisUnit; % this is the cluster ID as it appears in phy, 1-indexed (adding 1)
 
-    theseSpikeTimes = spikeTimes_seconds(spikeTemplates == thisUnit);
-    theseAmplis = templateAmplitudes(spikeTemplates == thisUnit);
-    theseAmplis = double(theseAmplis); % make sure amplitudes is a double()
+    theseSpikeTimes = spikeTimes_secondsGrouped{thisUnit};
+    theseAmplis = templateAmplitudesGrouped{thisUnit};
     
     %% percentage spikes missing (false negatives)
     [percentageSpikesMissing_gaussian, percentageSpikesMissing_symmetric, ksTest_pValue, ~, ~, ~] = ...

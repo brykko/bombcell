@@ -17,8 +17,17 @@ recordingChannels_n = param.nChannels - param.nSyncChannels;
 
 meta = bc.dependencies.SGLX_readMeta.ReadMeta(metaFile);
 
-% probeType 
-probeType = meta.imDatPrb_type;
+% probeType
+if isfield(meta, 'imDatPrb_type')
+    % For NP 1.0 probes and later, the 'imDatPrb_type' field
+    % indicates the probe model.
+    probeType = meta.imDatPrb_type;
+else
+    % If the imDatPrb_type' field doesn't exist, we assume it's an earlier
+    % ('phase 3A') recording, and we set the probe type to NP 1.0, which is
+    % equivalent for all purposes here.
+    probeType = '0';
+end
 
 % channelMapImro 
 if isfield(meta, 'imRoFile')

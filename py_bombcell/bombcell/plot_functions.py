@@ -196,7 +196,14 @@ def upset_plots(quality_metrics, unit_type_string, param, save_dir=None):
     qm_table = hf.make_qm_table(quality_metrics, param, unit_type_string)
     
     figures = []
-    unit_types = ["NOISE", "NON-SOMA", "MUA"]
+    
+    # Determine which unit types to plot based on param["splitGoodAndMua_NonSomatic"]
+    if param["splitGoodAndMua_NonSomatic"]:
+        # When splitting non-somatic into good and MUA
+        unit_types = ["NOISE", "NON-SOMA GOOD", "NON-SOMA MUA", "MUA"]
+    else:
+        # Original behavior: all non-somatic together
+        unit_types = ["NOISE", "NON-SOMA", "MUA"]
     
     for unit_type in unit_types:
         fig = plt.figure()
@@ -205,7 +212,9 @@ def upset_plots(quality_metrics, unit_type_string, param, save_dir=None):
         
         # Save figure if requested
         if save_dir is not None:
-            save_path = Path(save_dir) / f"upset_plot_{unit_type.lower()}.png"
+            # Replace spaces with underscores in filename
+            filename_unit_type = unit_type.lower().replace(" ", "_")
+            save_path = Path(save_dir) / f"upset_plot_{filename_unit_type}.png"
             fig.savefig(save_path, dpi=300, bbox_inches='tight')
             if param.get("verbose", True):
                 print(f"Saved {unit_type} upset plot to {save_path}")
@@ -336,15 +345,15 @@ def generate_waveform_overlay(
     unit_type_template_ids = unique_templates[unit_types_all==unit_type]
     n_units_of_type = unit_type_template_ids.size
 
+    # initialize figure, axis handles
+
+    if ax is None:
+        fig, ax = plt.subplots(1,1)
+    else:
+        fig = plt.gcf() # placeholder???
+
     # if the current unit type has more than 0 units, generate a plot
     if n_units_of_type > 0:
-        # initialize figure, axis handles
-
-        if ax is None:
-            fig, ax = plt.subplots(1,1)
-        else:
-            fig = plt.gcf() # placeholder???
-
         for template_id in unit_type_template_ids:
             max_channel_id = quality_metrics["maxChannels"][template_id]
             template_max_waveform = template_waveforms[template_id, 0:, max_channel_id] # template waveforms comes from load_ephys_data
@@ -359,9 +368,7 @@ def generate_waveform_overlay(
         ax.set_xticks([])
         ax.set_yticks([])
         ax.set_title(f"No {unit_type_str} units (n = 0)")
-    
-        return (None, None)
-    
+        
     return fig, ax
 
 
@@ -377,20 +384,24 @@ def generate_upset_plot(
         # get metrics relevant to chosen unit type
         if unit_type_str=="NOISE":
             unit_type_metrics = ["# peaks", "# troughs", "waveform duration", "spatial decay", "baseline flatness", "peak2 / trough"] #Duration is peak to trough duration
-        elif unit_type_str=="NON-SOMA":
+        elif unit_type_str=="NON-SOMA" or unit_type_str=="NON-SOMA GOOD" or unit_type_str=="NON-SOMA MUA":
             unit_type_metrics = ["trough / peak2", "peak1 / peak2"]
         elif unit_type_str=="MUA":
             unit_type_metrics = ["SNR", "amplitude", "presence ratio", "# spikes", "% spikes missing", "fraction RPVs", "max. drift", "isolation dist.", "L-ratio"]
         else:
-            raise ValueError(f"Invalid unit type {unit_type_str} - allowed values are 'NOISE', 'NON-SOMA', 'MUA'")
+            raise ValueError(f"Invalid unit type {unit_type_str} - allowed values are 'NOISE', 'NON-SOMA', 'NON-SOMA GOOD', 'NON-SOMA MUA', 'MUA'")
         
         # filter out uncomputed metrics
         unit_type_metrics = [m for m in unit_type_metrics if m in qm_table.columns]
 
         # generate mask for the chosen unit type and filter the data from qm_table
-        # For NON-SOMA unit type
+        # For NON-SOMA unit types
         if unit_type_str == "NON-SOMA":
             unit_type_mask = qm_table['unit_type'].str.startswith("NON-SOMA")
+        elif unit_type_str == "NON-SOMA GOOD":
+            unit_type_mask = qm_table['unit_type'] == "NON-SOMA GOOD"
+        elif unit_type_str == "NON-SOMA MUA":
+            unit_type_mask = qm_table['unit_type'] == "NON-SOMA MUA"
         else:
             unit_type_mask = qm_table['unit_type'].str.startswith(unit_type_str)
         unit_type_data = qm_table.loc[unit_type_mask, unit_type_metrics]
@@ -419,8 +430,8 @@ def generate_upset_plot(
         elif n_unit_type > 0:
             print(f"{unit_type_str.capitalize()} upset plot skipped: no metrics have failures")
     except (AttributeError, ValueError) as e:
-        print(f"Warning: Could not create {unit_type_str.lower()} upset plot due to library compatibility: {e}")
-
+        import warnings
+        warnings.warn(f"Could not create {unit_type_str.lower()} upset plot due to library compatibility: {e}", RuntimeWarning)
 
 def generate_histogram(
         metric_name, 

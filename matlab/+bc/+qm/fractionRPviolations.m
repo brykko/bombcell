@@ -105,26 +105,16 @@ if param.hillOrLlobetMethod
             end
         end
 else % this method is slower
-    N = length(thisSpikeTrain);
-    isi_violations_sum = 0;
-    
-    for i = 1:N
-        for j = i+1:N
-            isi = thisSpikeTrain(j) - thisSpikeTrain(i);
-            if isi <= tauR(iTauR_value) && isi >= param.tauC
-                isi_violations_sum = isi_violations_sum + 1;
-            end
-        end
-    end
-    underRoot = 1 - (isi_violations_sum * (durationChunk - 2 * N_chunk * param.tauC)) / (N_chunk^2 * (tauR(iTauR_value) - param.tauC));
-    if underRoot >= 0
-        RPVrate_Llobet(iTimeChunk, iTauR_value) = 1 - sqrt(underRoot);
-    else
-        RPVrate_Llobet(iTimeChunk, iTauR_value) = 1;
-    end
+    % The new algorithm yields identical results, but is much more
+    % efficient (especially for longer spike trains).
+    RPVrate_Llobet(iTimeChunk, iTauR_value) = rpvLlobetFast( ...
+        thisSpikeTrain, tauR(iTauR_value), param.tauC, N_chunk, durationChunk);
+
+    % For reference, the original algorithm is preserved here.
+    % RPVrate_Llobet(iTimeChunk, iTauR_value) = rpvLlobetOriginal( ...
+    % thisSpikeTrain, tauR(iTauR_value), param.tauC, N_chunk, durationChunk);
 end
     end
-
 
     if param.hillOrLlobetMethod
         RPVrate = RPVrate_Hill;
@@ -193,5 +183,76 @@ if param.plotDetails
     end
 end
 
+
+end
+
+function rpv = rpvLlobetOriginal(t, tauR, tauC, N_chunk, durationChunk)
+% Original algorithm - complexity scales with N^2
+N = length(t);
+isi_violations_sum = 0;
+
+for i = 1:N
+    for j = i+1:N
+        isi = t(j) - t(i);
+        if isi <= tauR && isi >= tauC
+            isi_violations_sum = isi_violations_sum + 1;
+        end
+    end
+end
+underRoot = 1 - (isi_violations_sum * (durationChunk - 2 * N_chunk * tauC)) / (N_chunk^2 * (tauR - tauC));
+if underRoot >= 0
+    rpv = 1 - sqrt(underRoot);
+else
+    rpv = 1;
+end
+end
+
+function rpv = rpvLlobetFast(t, tauR, tauC, N_chunk, durationChunk)
+% Faster algorithm - complexity scales with N.
+% Instead of checking every possible pair of spikes, we scan over the spike 
+% train only once, using a pair of pointers to check the valid pairs of 
+% spikes within the temporal window.
+
+N = numel(t);
+
+if N <= 1
+    isi_violations_sum = 0;
+else
+
+    isi_violations_sum = 0;
+    j_low  = 2;                         % first j with t(j)-t(i) >= tauC
+    j_high = 2;                         % first j with t(j)-t(i) >  tauR
+
+    for i = 1:N-1
+        if j_low < i+1,  j_low  = i+1;  end
+        if j_high < i+1, j_high = i+1;  end
+
+        % advance j_low until diffs are >= tauC (lower bound, inclusive)
+        while j_low <= N && (t(j_low) - t(i)) < tauC
+            j_low = j_low + 1;
+        end
+
+        % ensure j_high starts at least at j_low
+        if j_high < j_low, j_high = j_low; end
+
+        % advance j_high until diffs are > tauR (upper bound, inclusive)
+        while j_high <= N && (t(j_high) - t(i)) <= tauR
+            j_high = j_high + 1;
+        end
+
+        % all valid j are [j_low, j_high-1]
+        isi_violations_sum = isi_violations_sum + (j_high - j_low);
+    end
+end
+
+num   = isi_violations_sum * (durationChunk - 2 * N_chunk * tauC);
+denom = (N_chunk^2) * (tauR - tauC);
+underRoot = 1 - num / denom;
+
+if underRoot >= 0
+    rpv = 1 - sqrt(underRoot);
+else
+    rpv = 1;
+end
 
 end

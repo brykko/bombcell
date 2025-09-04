@@ -54,8 +54,7 @@ function [RPVrate, RPVfraction, overestimateBool] = fractionRPviolations(theseSp
 % into account here: https://github.com/SteinmetzLab/slidingRefractory
 
 % initialize variables
-RPVrate_Hill = ones(length(timeChunks)-1, length(tauR));
-RPVrate_Llobet = ones(length(timeChunks)-1, length(tauR));
+RPVrate = ones(length(timeChunks)-1, length(tauR));
 overestimateBool = nan(length(timeChunks)-1, length(tauR));
 RPVfraction = nan(length(timeChunks)-1, length(tauR));
 
@@ -84,42 +83,36 @@ for iTimeChunk = 1:length(timeChunks) - 1 %loop through each time chunk
         RPVfraction(iTimeChunk, iTauR_value) = nRPVs / N_chunk;
 
         overestimateBool(iTimeChunk, iTauR_value) = 0;
-if param.hillOrLlobetMethod
-        k = 2 * (tauR(iTauR_value) - param.tauC) * N_chunk^2;
-        T = abs(diff(timeChunks(iTimeChunk:iTimeChunk+1)));
-        % a = 2 * (tauR(iTauR_value) - param.tauC) * N_chunk^2 / abs(diff(timeChunks(iTimeChunk:iTimeChunk+1)));
-        % observed number of refractory period violations
+        if param.hillOrLlobetMethod
+            k = 2 * (tauR(iTauR_value) - param.tauC) * N_chunk^2;
+            T = abs(diff(timeChunks(iTimeChunk:iTimeChunk+1)));
+            % a = 2 * (tauR(iTauR_value) - param.tauC) * N_chunk^2 / abs(diff(timeChunks(iTimeChunk:iTimeChunk+1)));
+            % observed number of refractory period violations
 
-        if nRPVs == 0 % no observed refractory period violations - this can
-            % also be because there are no spikes in this interval - use presence ratio to weed this out
-            RPVrate_Hill(iTimeChunk, iTauR_value) = 0;
-        else % otherwise solve the equation above
-            rts = roots([k, -k, nRPVs * T]);
-            RPVrate_Hill(iTimeChunk, iTauR_value) = min(rts);
-            if ~isreal(RPVrate_Hill(iTimeChunk, iTauR_value)) % function returns imaginary number if r is too high
-                RPVrate_Hill(iTimeChunk, iTauR_value) = nRPVs / (2 * (tauR(iTauR_value) - param.tauC) * (N_chunk - nRPVs));
+            if nRPVs == 0 % no observed refractory period violations - this can
+                % also be because there are no spikes in this interval - use presence ratio to weed this out
+                RPVrate(iTimeChunk, iTauR_value) = 0;
+            else % otherwise solve the equation above
+                rts = roots([k, -k, nRPVs * T]);
+                RPVrate(iTimeChunk, iTauR_value) = min(rts);
+                if ~isreal(RPVrate(iTimeChunk, iTauR_value)) % function returns imaginary number if r is too high
+                    RPVrate(iTimeChunk, iTauR_value) = nRPVs / (2 * (tauR(iTauR_value) - param.tauC) * (N_chunk - nRPVs));
+                end
+                if RPVrate(iTimeChunk, iTauR_value) > 1 % it is nonsense to have a rate >1, the assumptions are failing here
+                    RPVrate(iTimeChunk, iTauR_value) = 1;
+                    overestimateBool(iTimeChunk, iTauR_value) = 1;
+                end
             end
-            if RPVrate_Hill(iTimeChunk, iTauR_value) > 1 % it is nonsense to have a rate >1, the assumptions are failing here
-                RPVrate_Hill(iTimeChunk, iTauR_value) = 1;
-                overestimateBool(iTimeChunk, iTauR_value) = 1;
-            end
+        else % this method is slower
+            % The new algorithm yields identical results, but is much more
+            % efficient (especially for longer spike trains).
+            RPVrate(iTimeChunk, iTauR_value) = rpvLlobetFast( ...
+                thisSpikeTrain, tauR(iTauR_value), param.tauC, N_chunk, durationChunk);
+
+            % For reference, the original algorithm is preserved here.
+            % RPVrate(iTimeChunk, iTauR_value) = rpvLlobetOriginal( ...
+            % thisSpikeTrain, tauR(iTauR_value), param.tauC, N_chunk, durationChunk);
         end
-else % this method is slower
-    % The new algorithm yields identical results, but is much more
-    % efficient (especially for longer spike trains).
-    RPVrate_Llobet(iTimeChunk, iTauR_value) = rpvLlobetFast( ...
-        thisSpikeTrain, tauR(iTauR_value), param.tauC, N_chunk, durationChunk);
-
-    % For reference, the original algorithm is preserved here.
-    % RPVrate_Llobet(iTimeChunk, iTauR_value) = rpvLlobetOriginal( ...
-    % thisSpikeTrain, tauR(iTauR_value), param.tauC, N_chunk, durationChunk);
-end
-    end
-
-    if param.hillOrLlobetMethod
-        RPVrate = RPVrate_Hill;
-    else
-        RPVrate = RPVrate_Llobet;
     end
 
     if param.plotDetails
@@ -209,8 +202,8 @@ end
 
 function rpv = rpvLlobetFast(t, tauR, tauC, N_chunk, durationChunk)
 % Faster algorithm - complexity scales with N.
-% Instead of checking every possible pair of spikes, we scan over the spike 
-% train only once, using a pair of pointers to check the valid pairs of 
+% Instead of checking every possible pair of spikes, we scan over the spike
+% train only once, using a pair of pointers to check the valid pairs of
 % spikes within the temporal window.
 
 N = numel(t);
